@@ -1,0 +1,1 @@
+[![Daily](https://github.com/olegsu/syncer/actions/workflows/daily.yml/badge.svg)](https://github.com/olegsu/syncer/actions/workflows/daily.yml)
