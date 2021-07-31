@@ -49,6 +49,7 @@ var (
 )
 
 func main() {
+	location, _ := time.LoadLocation("UTC")
 	pipe := engine.Pipeline{
 		Metadata: engine.PipelineMetadata{
 			Name: "test",
@@ -154,8 +155,8 @@ func main() {
 									"Project":    "",
 									"Link":       c.URL,
 									"ExternalID": c.ID,
-									"CreatedAt":  created.Format(timeFormat),
-									"ClosedAt":   now.Format(timeFormat),
+									"CreatedAt":  created.In(location).Add(time.Hour * 3).Format(timeFormat),
+									"ClosedAt":   now.In(location).Add(time.Hour * 3).Format(timeFormat),
 								}
 								candidates = append(candidates, airtable_types.Record{
 									Fields: fields,
