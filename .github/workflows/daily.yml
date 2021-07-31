@@ -1,0 +1,20 @@
+name: Daily
+
+on:
+  pull_request:
+    branches: [ master ]
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  build:
+    name: Build
+    runs-on: "ubuntu-18.04"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build and Run 
+        run: |
+          docker build -t syncer .
+          docker run -e TRELLO_APP_ID=${{ secrets.TRELLO_APP_ID }} -e TRELLO_TOKEN=${{ secrets.TRELLO_TOKEN }} -e TRELLO_BOARD=${{ secrets.TRELLO_BOARD }} -e AIRTABLE_API_KEY=${{ secrets.AIRTABLE_API_KEY }} -e AIRTABLE_DATABASE_ID=${{ secrets.AIRTABLE_DATABASE_ID }} -e AIRTABLE_TABLE_NAME=${{ secrets.AIRTABLE_TABLE_NAME }} syncer
