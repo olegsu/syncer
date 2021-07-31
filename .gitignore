@@ -1,0 +1,7 @@
+.vscode
+logs
+tasks
+.envrc
+events.yaml
+graph.dot
+state.yaml
