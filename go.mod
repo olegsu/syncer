@@ -3,8 +3,7 @@ module github.com/olegsu/trello-sync
 go 1.16
 
 require (
-	github.com/mehanizm/airtable v0.2.4 // indirect
-	github.com/open-integration/oi v0.92.0
+	github.com/open-integration/oi v0.101.0
 	github.com/pkg/errors v0.9.1
 )
 

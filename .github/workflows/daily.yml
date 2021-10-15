@@ -4,7 +4,8 @@ on:
   push:
     branches: [ master ]
   schedule:
-    - cron: '0 0 * * *'
+    # At minute 0 past every hour from 9 through 17 on every day-of-week from Sunday through Thursday.
+    - cron: '0 9-17 * * SUN-THU'
 
 jobs:
   build:
@@ -17,4 +18,4 @@ jobs:
       - name: Build and Run 
         run: |
           docker build -t syncer .
-          docker run -e TRELLO_APP_ID=${{ secrets.TRELLO_APP_ID }} -e TRELLO_TOKEN=${{ secrets.TRELLO_TOKEN }} -e TRELLO_BOARD=${{ secrets.TRELLO_BOARD }} -e AIRTABLE_API_KEY=${{ secrets.AIRTABLE_API_KEY }} -e AIRTABLE_DATABASE_ID=${{ secrets.AIRTABLE_DATABASE_ID }} -e AIRTABLE_TABLE_NAME=${{ secrets.AIRTABLE_TABLE_NAME }} syncer
+          docker run -e GOOGLE_SA_BASE64={{ secrets.GOOGLE_SA_BASE64 }} -e TRELLO_APP_ID=${{ secrets.TRELLO_APP_ID }} -e TRELLO_TOKEN=${{ secrets.TRELLO_TOKEN }} -e TRELLO_BOARD=${{ secrets.TRELLO_BOARD }} -e AIRTABLE_API_KEY=${{ secrets.AIRTABLE_API_KEY }} -e AIRTABLE_DATABASE_ID=${{ secrets.AIRTABLE_DATABASE_ID }} -e AIRTABLE_TABLE_NAME=${{ secrets.AIRTABLE_TABLE_NAME }} syncer

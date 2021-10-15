@@ -1,6 +1,7 @@
 package main
 
 import (
+	b64 "encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/open-integration/oi"
 	airtable_types "github.com/open-integration/oi/catalog/services/airtable/types"
+	gcalendar_types "github.com/open-integration/oi/catalog/services/google-calendar/types"
 	trello_types "github.com/open-integration/oi/catalog/services/trello/types"
 	"github.com/open-integration/oi/core/engine"
 	"github.com/open-integration/oi/core/event"
@@ -44,8 +46,32 @@ var (
 			},
 		},
 	}
-	trelloSvcLocation   = getEnvOrDie("TRELLO_SERVICE_LOCATION")
-	airtableSvcLocation = getEnvOrDie("AIRTABLE_SERVICE_LOCATION")
+	googleCalendarArgs = []task.Argument{
+
+		{
+			Key:   "CalendarID",
+			Value: "oleg@komodor.io",
+		},
+		{
+			Key:   "ShowDeleted",
+			Value: false,
+		},
+		{
+			Key:   "TimeMax",
+			Value: time.Now().Add(time.Hour * 24).Format(time.RFC3339),
+		},
+		{
+			Key:   "TimeMin",
+			Value: time.Now().Format(time.RFC3339),
+		},
+		{
+			Key:   "SingleEvents",
+			Value: true,
+		},
+	}
+	trelloSvcLocation         = getEnvOrDie("TRELLO_SERVICE_LOCATION")
+	airtableSvcLocation       = getEnvOrDie("AIRTABLE_SERVICE_LOCATION")
+	googleCalendarSvcLocation = getEnvOrDie("GOOGLE_CALENDAR_SERVICE_LOCATION")
 )
 
 func main() {
@@ -66,22 +92,38 @@ func main() {
 					As:   "airtable",
 					Path: airtableSvcLocation,
 				},
+				{
+					Name: "google-calendar",
+					As:   "google-calendar",
+					Path: googleCalendarSvcLocation,
+				},
 			},
 			Reactions: []engine.EventReaction{
 				{
 					Condition: oi.ConditionEngineStarted(),
 					Reaction: func(ev event.Event, state state.State) []task.Task {
+
+						b, err := b64.StdEncoding.DecodeString(getEnvOrDie("GOOGLE_SA_BASE64"))
+						if err != nil {
+							return nil
+						}
+						sa := gcalendar_types.ServiceAccount{}
+						json.Unmarshal([]byte(b), &sa)
+						googleCalendarArgs = append(googleCalendarArgs, task.Argument{
+							Key:   "ServiceAccount",
+							Value: sa,
+						})
 						return []task.Task{
 							oi.NewSerivceTask("get-cards", "trello", "getcards", trelloArgs...),
+							oi.NewSerivceTask("get-events", "google-calendar", "getevents", googleCalendarArgs...),
 						}
 					},
 				},
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
 					Reaction: func(ev event.Event, state state.State) []task.Task {
-						t := state.Tasks()
 						cards := []trello_types.Card{}
-						err := json.Unmarshal([]byte(t["get-cards"].Output), &cards)
+						err := state.GetStepOutputInto("get-cards", cards)
 						if err != nil {
 							return nil
 						}
@@ -101,15 +143,13 @@ func main() {
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-records", state.TaskStatusSuccess),
 					Reaction: func(ev event.Event, state state.State) []task.Task {
-						t := state.Tasks()
 						cards := []trello_types.Card{}
-						err := json.Unmarshal([]byte(t["get-cards"].Output), &cards)
+						err := state.GetStepOutputInto("get-cards", &cards)
 						if err != nil {
 							return nil
 						}
 						records := []airtable_types.Record{}
-						err = json.Unmarshal([]byte(t["get-records"].Output), &records)
-						if err != nil {
+						if err := state.GetStepOutputInto("get-records", &records); err != nil {
 							return nil
 						}
 						candidateIDs := []string{}
@@ -175,9 +215,8 @@ func main() {
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("add-records", state.TaskStatusSuccess),
 					Reaction: func(ev event.Event, state state.State) []task.Task {
-						t := state.Tasks()
 						records := airtable_types.AddRecordsReturns{}
-						err := json.Unmarshal([]byte(t["add-records"].Output), &records)
+						err := state.GetStepOutputInto("add-records", records)
 						if err != nil {
 							fmt.Println(err)
 							return nil
@@ -196,6 +235,92 @@ func main() {
 						return []task.Task{
 							oi.NewSerivceTask("archive-cards", "trello", "archivecards", a...),
 						}
+					},
+				},
+				{
+					Condition: oi.ConditionCombined(
+						oi.ConditionTaskFinishedWithStatus("get-events", state.TaskStatusSuccess),
+						oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
+					),
+					Reaction: func(ev event.Event, state state.State) []task.Task {
+						cards := []trello_types.Card{}
+						if err := state.GetStepOutputInto("get-cards", &cards); err != nil {
+							return nil
+						}
+						events := []gcalendar_types.Event{}
+						if err := state.GetStepOutputInto("get-events", &events); err != nil {
+							return nil
+						}
+						candidates := map[string]gcalendar_types.Event{}
+						for _, e := range events {
+							accepted := false
+							// accepted the meeting
+							for _, a := range e.Attendees {
+								if a.Self != nil && *a.Self && a.ResponseStatus != nil && *a.ResponseStatus == "accepted" {
+									accepted = true
+									break
+								}
+							}
+							// created by me
+							if e.Creator != nil && e.Creator.Self != nil && *e.Creator.Self {
+								accepted = true
+							}
+							if !accepted {
+								continue
+							}
+							candidates[*e.ID] = e
+						}
+						list := ""
+						for _, c := range cards {
+							if c.List.Name != "Today" {
+								continue
+							}
+							list = c.List.ID
+							for id := range candidates {
+								if strings.Contains(c.Desc, id) {
+									delete(candidates, id)
+								}
+							}
+						}
+						tasks := []task.Task{}
+						for _, c := range candidates {
+							name := fmt.Sprintf("add-task-%s", *c.ID)
+							desc := []string{}
+							start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
+							if err != nil {
+								start = time.Now()
+							}
+							if c.Description != nil {
+								desc = append(desc, *c.Description)
+							}
+							if c.HTMLLink != nil {
+								desc = append(desc, fmt.Sprintf("URL: %s", *c.HTMLLink))
+							}
+							if c.Start != nil {
+								desc = append(desc, fmt.Sprintf("Start At: %s", start.String()))
+							}
+							desc = append(desc, *c.ID)
+							args := append(trelloArgs, task.Argument{
+								Key:   "Description",
+								Value: strings.Join(desc, "\n"),
+							})
+							args = append(args, task.Argument{
+								Key: "Labels",
+								Value: []string{
+									"5cdab1c291d0c2ddc5905aad", // komodor - blue
+								},
+							})
+							args = append(args, task.Argument{
+								Key:   "List",
+								Value: list,
+							})
+							args = append(args, task.Argument{
+								Key:   "Name",
+								Value: fmt.Sprintf("%s [%s]", *c.Summary, start.Format("15:04")),
+							})
+							tasks = append(tasks, oi.NewSerivceTask(name, "trello", "addcard", args...))
+						}
+						return tasks
 					},
 				},
 			},
