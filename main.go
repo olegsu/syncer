@@ -123,7 +123,7 @@ func main() {
 					Condition: oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
 					Reaction: func(ev event.Event, state state.State) []task.Task {
 						cards := []trello_types.Card{}
-						err := state.GetStepOutputInto("get-cards", cards)
+						err := state.GetStepOutputInto("get-cards", &cards)
 						if err != nil {
 							return nil
 						}
@@ -216,7 +216,7 @@ func main() {
 					Condition: oi.ConditionTaskFinishedWithStatus("add-records", state.TaskStatusSuccess),
 					Reaction: func(ev event.Event, state state.State) []task.Task {
 						records := airtable_types.AddRecordsReturns{}
-						err := state.GetStepOutputInto("add-records", records)
+						err := state.GetStepOutputInto("add-records", &records)
 						if err != nil {
 							fmt.Println(err)
 							return nil

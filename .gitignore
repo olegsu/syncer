@@ -6,3 +6,4 @@ events.yaml
 graph.dot
 state.yaml
 crendentials.json
+.env
