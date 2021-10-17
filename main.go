@@ -101,227 +101,30 @@ func main() {
 			Reactions: []engine.EventReaction{
 				{
 					Condition: oi.ConditionEngineStarted(),
-					Reaction: func(ev event.Event, state state.State) []task.Task {
-
-						b, err := b64.StdEncoding.DecodeString(getEnvOrDie("GOOGLE_SA_BASE64"))
-						if err != nil {
-							return nil
-						}
-						sa := gcalendar_types.ServiceAccount{}
-						json.Unmarshal([]byte(b), &sa)
-						googleCalendarArgs = append(googleCalendarArgs, task.Argument{
-							Key:   "ServiceAccount",
-							Value: sa,
-						})
-						return []task.Task{
-							oi.NewSerivceTask("get-cards", "trello", "getcards", trelloArgs...),
-							oi.NewSerivceTask("get-events", "google-calendar", "getevents", googleCalendarArgs...),
-						}
-					},
+					Reaction:  getTrelloCards(),
+				},
+				{
+					Condition: oi.ConditionEngineStarted(),
+					Reaction:  getEventsFromGoogleCalendar(getEnvOrDie("GOOGLE_SA_BASE64")),
 				},
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
-					Reaction: func(ev event.Event, state state.State) []task.Task {
-						cards := []trello_types.Card{}
-						err := state.GetStepOutputInto("get-cards", &cards)
-						if err != nil {
-							return nil
-						}
-						q := []string{}
-						for _, c := range cards {
-							q = append(q, fmt.Sprintf("ExternalID='%s'", c.ID))
-						}
-						a := append(airtableArgs, task.Argument{
-							Key:   "Formula",
-							Value: fmt.Sprintf("OR(%s)", strings.Join(q, ",")),
-						})
-						return []task.Task{
-							oi.NewSerivceTask("get-records", "airtable", "getrecords", a...),
-						}
-					},
+					Reaction:  getAirtableRecords(),
 				},
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-records", state.TaskStatusSuccess),
-					Reaction: func(ev event.Event, state state.State) []task.Task {
-						cards := []trello_types.Card{}
-						err := state.GetStepOutputInto("get-cards", &cards)
-						if err != nil {
-							return nil
-						}
-						records := []airtable_types.Record{}
-						if err := state.GetStepOutputInto("get-records", &records); err != nil {
-							return nil
-						}
-						candidateIDs := []string{}
-						for _, c := range cards {
-							if c.List.Name == "Done" {
-								candidateIDs = append(candidateIDs, c.ID)
-							}
-						}
-						actualIDs := []string{}
-						for _, r := range records {
-							if _, ok := r.Fields["ExternalID"]; !ok {
-								continue
-							}
-							actualIDs = append(actualIDs, r.Fields["ExternalID"].(string))
-						}
-						intersections := xor(candidateIDs, actualIDs)
-						candidates := []airtable_types.Record{}
-						for _, i := range intersections {
-							for _, c := range cards {
-								if i != c.ID {
-									continue
-								}
-								if c.List.Name != "Done" {
-									continue
-								}
-								tags := []string{}
-								for _, t := range c.Labels {
-									if t.Name == "" {
-										continue
-									}
-									tags = append(tags, t.Name)
-								}
-
-								created, err := IDToTime(c.ID)
-								if err != nil {
-									created = time.Now()
-								}
-								now := time.Now()
-								fields := map[string]interface{}{
-									"Name":       c.Name,
-									"Tags":       tags,
-									"Summary":    c.Desc,
-									"Project":    "",
-									"Link":       c.URL,
-									"ExternalID": c.ID,
-									"CreatedAt":  created.In(location).Add(time.Hour * 3).Format(timeFormat),
-									"ClosedAt":   now.In(location).Add(time.Hour * 3).Format(timeFormat),
-								}
-								candidates = append(candidates, airtable_types.Record{
-									Fields: fields,
-								})
-							}
-						}
-						args := append(airtableArgs, task.Argument{
-							Key:   "Records",
-							Value: candidates,
-						})
-						return []task.Task{
-							oi.NewSerivceTask("add-records", "airtable", "addrecords", args...),
-						}
-					},
+					Reaction:  createAiretableRecords(location),
 				},
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("add-records", state.TaskStatusSuccess),
-					Reaction: func(ev event.Event, state state.State) []task.Task {
-						records := airtable_types.AddRecordsReturns{}
-						err := state.GetStepOutputInto("add-records", &records)
-						if err != nil {
-							fmt.Println(err)
-							return nil
-						}
-						toArchive := []string{}
-						for _, r := range records.Records {
-							if _, ok := r.Fields["ExternalID"]; !ok {
-								continue
-							}
-							toArchive = append(toArchive, r.Fields["ExternalID"].(string))
-						}
-						a := append(trelloArgs, task.Argument{
-							Key:   "CardIDs",
-							Value: toArchive,
-						})
-						return []task.Task{
-							oi.NewSerivceTask("archive-cards", "trello", "archivecards", a...),
-						}
-					},
+					Reaction:  archiveTrelloCards(),
 				},
 				{
 					Condition: oi.ConditionCombined(
 						oi.ConditionTaskFinishedWithStatus("get-events", state.TaskStatusSuccess),
 						oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
 					),
-					Reaction: func(ev event.Event, state state.State) []task.Task {
-						cards := []trello_types.Card{}
-						if err := state.GetStepOutputInto("get-cards", &cards); err != nil {
-							return nil
-						}
-						events := []gcalendar_types.Event{}
-						if err := state.GetStepOutputInto("get-events", &events); err != nil {
-							return nil
-						}
-						candidates := map[string]gcalendar_types.Event{}
-						for _, e := range events {
-							accepted := false
-							// accepted the meeting
-							for _, a := range e.Attendees {
-								if a.Self != nil && *a.Self && a.ResponseStatus != nil && *a.ResponseStatus == "accepted" {
-									accepted = true
-									break
-								}
-							}
-							// created by me
-							if e.Creator != nil && e.Creator.Self != nil && *e.Creator.Self {
-								accepted = true
-							}
-							if !accepted {
-								continue
-							}
-							candidates[*e.ID] = e
-						}
-						list := ""
-						for _, c := range cards {
-							if c.List.Name != "Today" {
-								continue
-							}
-							list = c.List.ID
-							for id := range candidates {
-								if strings.Contains(c.Desc, id) {
-									delete(candidates, id)
-								}
-							}
-						}
-						tasks := []task.Task{}
-						for _, c := range candidates {
-							name := fmt.Sprintf("add-task-%s", *c.ID)
-							desc := []string{}
-							start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
-							if err != nil {
-								start = time.Now()
-							}
-							if c.Description != nil {
-								desc = append(desc, *c.Description)
-							}
-							if c.HTMLLink != nil {
-								desc = append(desc, fmt.Sprintf("URL: %s", *c.HTMLLink))
-							}
-							if c.Start != nil {
-								desc = append(desc, fmt.Sprintf("Start At: %s", start.String()))
-							}
-							desc = append(desc, *c.ID)
-							args := append(trelloArgs, task.Argument{
-								Key:   "Description",
-								Value: strings.Join(desc, "\n"),
-							})
-							args = append(args, task.Argument{
-								Key: "Labels",
-								Value: []string{
-									"5cdab1c291d0c2ddc5905aad", // komodor - blue
-								},
-							})
-							args = append(args, task.Argument{
-								Key:   "List",
-								Value: list,
-							})
-							args = append(args, task.Argument{
-								Key:   "Name",
-								Value: fmt.Sprintf("%s [%s]", *c.Summary, start.Format("15:04")),
-							})
-							tasks = append(tasks, oi.NewSerivceTask(name, "trello", "addcard", args...))
-						}
-						return tasks
-					},
+					Reaction: createTrelloCards(),
 				},
 			},
 		},
@@ -372,4 +175,230 @@ func getEnvOrDie(name string) string {
 		panic(fmt.Errorf("%s is required", name))
 	}
 	return v
+}
+
+func getTrelloCards() func(ev event.Event, state state.State) []task.Task {
+	return func(ev event.Event, state state.State) []task.Task {
+		return []task.Task{
+			oi.NewSerivceTask("get-cards", "trello", "getcards", trelloArgs...),
+		}
+	}
+}
+
+func getEventsFromGoogleCalendar(googleSaB64 string) func(ev event.Event, state state.State) []task.Task {
+	return func(ev event.Event, state state.State) []task.Task {
+		b, err := b64.StdEncoding.DecodeString(googleSaB64)
+		if err != nil {
+			return nil
+		}
+		sa := gcalendar_types.ServiceAccount{}
+		json.Unmarshal([]byte(b), &sa)
+		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
+			Key:   "ServiceAccount",
+			Value: sa,
+		})
+		return []task.Task{
+			oi.NewSerivceTask("get-events", "google-calendar", "getevents", googleCalendarArgs...),
+		}
+	}
+}
+
+func getAirtableRecords() func(ev event.Event, state state.State) []task.Task {
+	return func(ev event.Event, state state.State) []task.Task {
+		cards := []trello_types.Card{}
+		err := state.GetStepOutputInto("get-cards", &cards)
+		if err != nil {
+			return nil
+		}
+		q := []string{}
+		for _, c := range cards {
+			q = append(q, fmt.Sprintf("ExternalID='%s'", c.ID))
+		}
+		a := append(airtableArgs, task.Argument{
+			Key:   "Formula",
+			Value: fmt.Sprintf("OR(%s)", strings.Join(q, ",")),
+		})
+		return []task.Task{
+			oi.NewSerivceTask("get-records", "airtable", "getrecords", a...),
+		}
+	}
+}
+
+func createAiretableRecords(location *time.Location) func(ev event.Event, state state.State) []task.Task {
+	return func(ev event.Event, state state.State) []task.Task {
+		cards := []trello_types.Card{}
+		err := state.GetStepOutputInto("get-cards", &cards)
+		if err != nil {
+			return nil
+		}
+		records := []airtable_types.Record{}
+		if err := state.GetStepOutputInto("get-records", &records); err != nil {
+			return nil
+		}
+		candidateIDs := []string{}
+		for _, c := range cards {
+			if c.List.Name == "Done" {
+				candidateIDs = append(candidateIDs, c.ID)
+			}
+		}
+		actualIDs := []string{}
+		for _, r := range records {
+			if _, ok := r.Fields["ExternalID"]; !ok {
+				continue
+			}
+			actualIDs = append(actualIDs, r.Fields["ExternalID"].(string))
+		}
+		intersections := xor(candidateIDs, actualIDs)
+		candidates := []airtable_types.Record{}
+		for _, i := range intersections {
+			for _, c := range cards {
+				if i != c.ID {
+					continue
+				}
+				if c.List.Name != "Done" {
+					continue
+				}
+				tags := []string{}
+				for _, t := range c.Labels {
+					if t.Name == "" {
+						continue
+					}
+					tags = append(tags, t.Name)
+				}
+
+				created, err := IDToTime(c.ID)
+				if err != nil {
+					created = time.Now()
+				}
+				now := time.Now()
+				fields := map[string]interface{}{
+					"Name":       c.Name,
+					"Tags":       tags,
+					"Summary":    c.Desc,
+					"Project":    "",
+					"Link":       c.URL,
+					"ExternalID": c.ID,
+					"CreatedAt":  created.In(location).Add(time.Hour * 3).Format(timeFormat),
+					"ClosedAt":   now.In(location).Add(time.Hour * 3).Format(timeFormat),
+				}
+				candidates = append(candidates, airtable_types.Record{
+					Fields: fields,
+				})
+			}
+		}
+		args := append(airtableArgs, task.Argument{
+			Key:   "Records",
+			Value: candidates,
+		})
+		return []task.Task{
+			oi.NewSerivceTask("add-records", "airtable", "addrecords", args...),
+		}
+	}
+}
+
+func archiveTrelloCards() func(ev event.Event, state state.State) []task.Task {
+	return func(ev event.Event, state state.State) []task.Task {
+		records := airtable_types.AddRecordsReturns{}
+		err := state.GetStepOutputInto("add-records", &records)
+		if err != nil {
+			return nil
+		}
+		toArchive := []string{}
+		for _, r := range records.Records {
+			if _, ok := r.Fields["ExternalID"]; !ok {
+				continue
+			}
+			toArchive = append(toArchive, r.Fields["ExternalID"].(string))
+		}
+		a := append(trelloArgs, task.Argument{
+			Key:   "CardIDs",
+			Value: toArchive,
+		})
+		return []task.Task{
+			oi.NewSerivceTask("archive-cards", "trello", "archivecards", a...),
+		}
+	}
+}
+
+func createTrelloCards() func(ev event.Event, state state.State) []task.Task {
+	return func(ev event.Event, state state.State) []task.Task {
+		cards := []trello_types.Card{}
+		if err := state.GetStepOutputInto("get-cards", &cards); err != nil {
+			return nil
+		}
+		events := []gcalendar_types.Event{}
+		if err := state.GetStepOutputInto("get-events", &events); err != nil {
+			return nil
+		}
+		candidates := map[string]gcalendar_types.Event{}
+		for _, e := range events {
+			accepted := false
+			// accepted the meeting
+			for _, a := range e.Attendees {
+				if a.Self != nil && *a.Self && a.ResponseStatus != nil && *a.ResponseStatus == "accepted" {
+					accepted = true
+					break
+				}
+			}
+			// created by me
+			if e.Creator != nil && e.Creator.Self != nil && *e.Creator.Self {
+				accepted = true
+			}
+			if !accepted {
+				continue
+			}
+			candidates[*e.ID] = e
+		}
+		list := ""
+		for _, c := range cards {
+			if c.List.Name != "Today" {
+				continue
+			}
+			list = c.List.ID
+			for id := range candidates {
+				if strings.Contains(c.Desc, id) {
+					delete(candidates, id)
+				}
+			}
+		}
+		tasks := []task.Task{}
+		for _, c := range candidates {
+			name := fmt.Sprintf("add-task-%s", *c.ID)
+			desc := []string{}
+			start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
+			if err != nil {
+				start = time.Now()
+			}
+			if c.Description != nil {
+				desc = append(desc, *c.Description)
+			}
+			if c.HTMLLink != nil {
+				desc = append(desc, fmt.Sprintf("URL: %s", *c.HTMLLink))
+			}
+			if c.Start != nil {
+				desc = append(desc, fmt.Sprintf("Start At: %s", start.String()))
+			}
+			desc = append(desc, *c.ID)
+			args := append(trelloArgs, task.Argument{
+				Key:   "Description",
+				Value: strings.Join(desc, "\n"),
+			})
+			args = append(args, task.Argument{
+				Key: "Labels",
+				Value: []string{
+					"5cdab1c291d0c2ddc5905aad", // komodor - blue
+				},
+			})
+			args = append(args, task.Argument{
+				Key:   "List",
+				Value: list,
+			})
+			args = append(args, task.Argument{
+				Key:   "Name",
+				Value: fmt.Sprintf("%s [%s]", *c.Summary, start.Format("15:04")),
+			})
+			tasks = append(tasks, oi.NewSerivceTask(name, "trello", "addcard", args...))
+		}
+		return tasks
+	}
 }
