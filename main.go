@@ -57,10 +57,6 @@ var (
 			Value: false,
 		},
 		{
-			Key:   "TimeMax",
-			Value: time.Now().Add(time.Hour * 24).Format(time.RFC3339),
-		},
-		{
 			Key:   "TimeMin",
 			Value: time.Now().Format(time.RFC3339),
 		},
@@ -105,7 +101,7 @@ func main() {
 				},
 				{
 					Condition: oi.ConditionEngineStarted(),
-					Reaction:  getEventsFromGoogleCalendar(getEnvOrDie("GOOGLE_SA_BASE64")),
+					Reaction:  getEventsFromGoogleCalendar(location, getEnvOrDie("GOOGLE_SA_BASE64")),
 				},
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
@@ -185,7 +181,7 @@ func getTrelloCards() func(ev event.Event, state state.State) []task.Task {
 	}
 }
 
-func getEventsFromGoogleCalendar(googleSaB64 string) func(ev event.Event, state state.State) []task.Task {
+func getEventsFromGoogleCalendar(location *time.Location, googleSaB64 string) func(ev event.Event, state state.State) []task.Task {
 	return func(ev event.Event, state state.State) []task.Task {
 		b, err := b64.StdEncoding.DecodeString(googleSaB64)
 		if err != nil {
@@ -193,6 +189,11 @@ func getEventsFromGoogleCalendar(googleSaB64 string) func(ev event.Event, state 
 		}
 		sa := gcalendar_types.ServiceAccount{}
 		json.Unmarshal([]byte(b), &sa)
+		now := time.Now()
+		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
+			Key:   "TimeMax",
+			Value: time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, location),
+		})
 		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
 			Key:   "ServiceAccount",
 			Value: sa,

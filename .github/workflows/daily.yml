@@ -3,7 +3,8 @@ name: Daily
 on:
   schedule:
     # At minute 0 past every hour from 9 through 17 on every day-of-week from Sunday through Thursday.
-    - cron: '0 9-17 * * SUN-THU'
+    # 6-14 -> 9-17
+    - cron: '0 6-14 * * SUN-THU'
 
 jobs:
   build:
