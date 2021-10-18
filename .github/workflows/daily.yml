@@ -12,4 +12,4 @@ jobs:
     runs-on: "ubuntu-18.04"
     steps:
       - name: Run
-        run: docker run -e GOOGLE_SA_BASE64=${{ secrets.GOOGLE_SA_BASE64 }} -e TRELLO_APP_ID=${{ secrets.TRELLO_APP_ID }} -e TRELLO_TOKEN=${{ secrets.TRELLO_TOKEN }} -e TRELLO_BOARD=${{ secrets.TRELLO_BOARD }} -e AIRTABLE_API_KEY=${{ secrets.AIRTABLE_API_KEY }} -e AIRTABLE_DATABASE_ID=${{ secrets.AIRTABLE_DATABASE_ID }} -e AIRTABLE_TABLE_NAME=${{ secrets.AIRTABLE_TABLE_NAME }} olsynt/syncer
+        run: docker run -e WORK_EMAIL=${{ secrets.WORK_EMAIL }} -e PERSONAL_EMAIL=${{ secrets.PERSONAL_EMAIL }} -e GOOGLE_SA_BASE64=${{ secrets.GOOGLE_SA_BASE64 }} -e TRELLO_APP_ID=${{ secrets.TRELLO_APP_ID }} -e TRELLO_TOKEN=${{ secrets.TRELLO_TOKEN }} -e TRELLO_BOARD=${{ secrets.TRELLO_BOARD }} -e AIRTABLE_API_KEY=${{ secrets.AIRTABLE_API_KEY }} -e AIRTABLE_DATABASE_ID=${{ secrets.AIRTABLE_DATABASE_ID }} -e AIRTABLE_TABLE_NAME=${{ secrets.AIRTABLE_TABLE_NAME }} olsynt/syncer
