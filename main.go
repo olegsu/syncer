@@ -22,6 +22,10 @@ import (
 
 const timeFormat = "02/Jan/2006 15:04"
 
+const trelloBlueLabel = "5cdab1c291d0c2ddc5905aad"
+const trelloLineLabel = "5cdafec7c65fab3704aaf9bc"
+const trelloListToday = "5cdab1cecdf59d48f1546523"
+
 var (
 	trelloArgs = []task.Argument{
 		{
@@ -47,11 +51,6 @@ var (
 		},
 	}
 	googleCalendarArgs = []task.Argument{
-
-		{
-			Key:   "CalendarID",
-			Value: "oleg@komodor.io",
-		},
 		{
 			Key:   "ShowDeleted",
 			Value: false,
@@ -69,6 +68,9 @@ var (
 	airtableSvcLocation       = getEnvOrDie("AIRTABLE_SERVICE_LOCATION")
 	googleCalendarSvcLocation = getEnvOrDie("GOOGLE_CALENDAR_SERVICE_LOCATION")
 )
+
+var caledarOlegKomodor = getEnvOrDie("WORK_EMAIL")
+var caledarOlegPersonal = getEnvOrDie("PERSONAL_EMAIL")
 
 func main() {
 	location, _ := time.LoadLocation("UTC")
@@ -101,7 +103,7 @@ func main() {
 				},
 				{
 					Condition: oi.ConditionEngineStarted(),
-					Reaction:  getEventsFromGoogleCalendar(location, getEnvOrDie("GOOGLE_SA_BASE64")),
+					Reaction:  getEventsFromGoogleCalendar(caledarOlegKomodor, location, getEnvOrDie("GOOGLE_SA_BASE64")),
 				},
 				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
@@ -117,10 +119,17 @@ func main() {
 				},
 				{
 					Condition: oi.ConditionCombined(
-						oi.ConditionTaskFinishedWithStatus("get-events", state.TaskStatusSuccess),
+						oi.ConditionTaskFinishedWithStatus(fmt.Sprintf("get-events-%s", caledarOlegKomodor), state.TaskStatusSuccess),
 						oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
 					),
-					Reaction: createTrelloCards(),
+					Reaction: createTrelloCards(fmt.Sprintf("get-events-%s", caledarOlegKomodor), trelloListToday, []string{trelloBlueLabel}),
+				},
+				{
+					Condition: oi.ConditionCombined(
+						oi.ConditionTaskFinishedWithStatus(fmt.Sprintf("get-events-%s", caledarOlegPersonal), state.TaskStatusSuccess),
+						oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
+					),
+					Reaction: createTrelloCards(fmt.Sprintf("get-events-%s", caledarOlegPersonal), trelloListToday, []string{trelloLineLabel}),
 				},
 			},
 		},
@@ -181,7 +190,7 @@ func getTrelloCards() func(ev event.Event, state state.State) []task.Task {
 	}
 }
 
-func getEventsFromGoogleCalendar(location *time.Location, googleSaB64 string) func(ev event.Event, state state.State) []task.Task {
+func getEventsFromGoogleCalendar(calendarID string, location *time.Location, googleSaB64 string) func(ev event.Event, state state.State) []task.Task {
 	return func(ev event.Event, state state.State) []task.Task {
 		b, err := b64.StdEncoding.DecodeString(googleSaB64)
 		if err != nil {
@@ -192,14 +201,18 @@ func getEventsFromGoogleCalendar(location *time.Location, googleSaB64 string) fu
 		now := time.Now()
 		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
 			Key:   "TimeMax",
-			Value: time.Date(now.Year(), now.Month(), now.Day(), 21, 0, 0, 0, location),
+			Value: time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location),
 		})
 		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
 			Key:   "ServiceAccount",
 			Value: sa,
 		})
+		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
+			Key:   "CalendarID",
+			Value: calendarID,
+		})
 		return []task.Task{
-			oi.NewSerivceTask("get-events", "google-calendar", "getevents", googleCalendarArgs...),
+			oi.NewSerivceTask(fmt.Sprintf("get-events-%s", calendarID), "google-calendar", "getevents", googleCalendarArgs...),
 		}
 	}
 }
@@ -321,14 +334,14 @@ func archiveTrelloCards() func(ev event.Event, state state.State) []task.Task {
 	}
 }
 
-func createTrelloCards() func(ev event.Event, state state.State) []task.Task {
+func createTrelloCards(calendarEventsTask string, list string, labels []string) func(ev event.Event, state state.State) []task.Task {
 	return func(ev event.Event, state state.State) []task.Task {
 		cards := []trello_types.Card{}
 		if err := state.GetStepOutputInto("get-cards", &cards); err != nil {
 			return nil
 		}
 		events := []gcalendar_types.Event{}
-		if err := state.GetStepOutputInto("get-events", &events); err != nil {
+		if err := state.GetStepOutputInto(calendarEventsTask, &events); err != nil {
 			return nil
 		}
 		candidates := map[string]gcalendar_types.Event{}
@@ -383,14 +396,12 @@ func createTrelloCards() func(ev event.Event, state state.State) []task.Task {
 				Value: strings.Join(desc, "\n"),
 			})
 			args = append(args, task.Argument{
-				Key: "Labels",
-				Value: []string{
-					"5cdab1c291d0c2ddc5905aad", // komodor - blue
-				},
+				Key:   "Labels",
+				Value: labels,
 			})
 			args = append(args, task.Argument{
 				Key:   "List",
-				Value: "5cdab1cecdf59d48f1546523", // Today
+				Value: list,
 			})
 			args = append(args, task.Argument{
 				Key:   "Name",
