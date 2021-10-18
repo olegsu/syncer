@@ -350,12 +350,10 @@ func createTrelloCards() func(ev event.Event, state state.State) []task.Task {
 			}
 			candidates[*e.ID] = e
 		}
-		list := ""
 		for _, c := range cards {
 			if c.List.Name != "Today" {
 				continue
 			}
-			list = c.List.ID
 			for id := range candidates {
 				if strings.Contains(c.Desc, id) {
 					delete(candidates, id)
@@ -392,7 +390,7 @@ func createTrelloCards() func(ev event.Event, state state.State) []task.Task {
 			})
 			args = append(args, task.Argument{
 				Key:   "List",
-				Value: list,
+				Value: "5cdab1cecdf59d48f1546523", // Today
 			})
 			args = append(args, task.Argument{
 				Key:   "Name",
