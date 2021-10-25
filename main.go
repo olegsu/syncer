@@ -377,6 +377,9 @@ func createTrelloCards(calendarEventsTask string, list string, labels []string) 
 		for _, c := range candidates {
 			name := fmt.Sprintf("add-task-%s", *c.ID)
 			desc := []string{}
+			if c.Start.DateTime == nil {
+				continue
+			}
 			start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
 			if err != nil {
 				start = time.Now()
