@@ -106,6 +106,10 @@ func main() {
 					Reaction:  getEventsFromGoogleCalendar(caledarOlegKomodor, location, getEnvOrDie("GOOGLE_SA_BASE64")),
 				},
 				{
+					Condition: oi.ConditionEngineStarted(),
+					Reaction:  getEventsFromGoogleCalendar(caledarOlegPersonal, location, getEnvOrDie("GOOGLE_SA_BASE64")),
+				},
+				{
 					Condition: oi.ConditionTaskFinishedWithStatus("get-cards", state.TaskStatusSuccess),
 					Reaction:  getAirtableRecords(),
 				},
