@@ -381,20 +381,18 @@ func createTrelloCards(calendarEventsTask string, list string, labels []string) 
 		for _, c := range candidates {
 			name := fmt.Sprintf("add-task-%s", *c.ID)
 			desc := []string{}
-			if c.Start.DateTime == nil {
-				continue
-			}
-			start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
-			if err != nil {
-				start = time.Now()
-			}
 			if c.Description != nil {
 				desc = append(desc, *c.Description)
 			}
 			if c.HTMLLink != nil {
 				desc = append(desc, fmt.Sprintf("URL: %s", *c.HTMLLink))
 			}
-			if c.Start != nil {
+			if c.Start.DateTime != nil {
+				start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
+				if err != nil {
+					fmt.Println(err)
+					return nil
+				}
 				desc = append(desc, fmt.Sprintf("Start At: %s", start.String()))
 			}
 			desc = append(desc, *c.ID)
@@ -410,10 +408,23 @@ func createTrelloCards(calendarEventsTask string, list string, labels []string) 
 				Key:   "List",
 				Value: list,
 			})
+
+			taskName := strings.Builder{}
+			taskName.WriteString(*c.Summary)
+			if c.Start.DateTime != nil {
+				start, err := time.Parse(time.RFC3339, *c.Start.DateTime)
+				if err != nil {
+					fmt.Println(err)
+					return nil
+				}
+				taskName.WriteString(" [" + start.Format("15:04") + "]")
+			}
+
 			args = append(args, task.Argument{
 				Key:   "Name",
-				Value: fmt.Sprintf("%s [%s]", *c.Summary, start.Format("15:04")),
+				Value: taskName.String(),
 			})
+
 			tasks = append(tasks, oi.NewSerivceTask(name, "trello", "addcard", args...))
 		}
 		return tasks
