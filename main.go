@@ -56,10 +56,6 @@ var (
 			Value: false,
 		},
 		{
-			Key:   "TimeMin",
-			Value: time.Now().Format(time.RFC3339),
-		},
-		{
 			Key:   "SingleEvents",
 			Value: true,
 		},
@@ -76,7 +72,7 @@ func main() {
 	location, _ := time.LoadLocation("UTC")
 	pipe := engine.Pipeline{
 		Metadata: engine.PipelineMetadata{
-			Name: "test",
+			Name: "syncer",
 		},
 		Spec: engine.PipelineSpec{
 			Services: []engine.Service{
@@ -202,10 +198,14 @@ func getEventsFromGoogleCalendar(calendarID string, location *time.Location, goo
 		}
 		sa := gcalendar_types.ServiceAccount{}
 		json.Unmarshal([]byte(b), &sa)
-		now := time.Now()
+		now := time.Now().In(location)
+		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
+			Key:   "TimeMin",
+			Value: now.Format(time.RFC3339),
+		})
 		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
 			Key:   "TimeMax",
-			Value: time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location),
+			Value: time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 0, 0, location).Format(time.RFC3339),
 		})
 		googleCalendarArgs = append(googleCalendarArgs, task.Argument{
 			Key:   "ServiceAccount",
@@ -286,9 +286,9 @@ func createAiretableRecords(location *time.Location) func(ev event.Event, state 
 
 				created, err := IDToTime(c.ID)
 				if err != nil {
-					created = time.Now()
+					created = time.Now().In(location)
 				}
-				now := time.Now()
+				now := time.Now().In(location)
 				fields := map[string]interface{}{
 					"Name":       c.Name,
 					"Tags":       tags,
@@ -418,6 +418,13 @@ func createTrelloCards(calendarEventsTask string, list string, labels []string) 
 					return nil
 				}
 				taskName.WriteString(" [" + start.Format("15:04") + "]")
+			} else if c.Start.Date != nil {
+				start, err := time.Parse("2006-01-02", *c.Start.Date)
+				if err != nil {
+					fmt.Println(err)
+					return nil
+				}
+				taskName.WriteString(" [" + start.Format("2006-01-02") + "]")
 			}
 
 			args = append(args, task.Argument{
