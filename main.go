@@ -69,7 +69,10 @@ var caledarOlegKomodor = getEnvOrDie("WORK_EMAIL")
 var caledarOlegPersonal = getEnvOrDie("PERSONAL_EMAIL")
 
 func main() {
-	location, _ := time.LoadLocation("UTC")
+	location, err := time.LoadLocation("Israel")
+	if err != nil {
+		panic(err)
+	}
 	pipe := engine.Pipeline{
 		Metadata: engine.PipelineMetadata{
 			Name: "syncer",
