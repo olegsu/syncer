@@ -13,6 +13,9 @@ RUN go build -o syncer main.go
 
 FROM alpine:3.12
 
+COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /zoneinfo.zip
+ENV ZONEINFO=/zoneinfo.zip
+
 COPY --from=airtable /app/service /usr/local/bin/airtable
 ENV AIRTABLE_SERVICE_LOCATION=/usr/local/bin/airtable
 
