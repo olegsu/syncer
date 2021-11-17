@@ -63,6 +63,8 @@ var (
 	trelloSvcLocation         = getEnvOrDie("TRELLO_SERVICE_LOCATION")
 	airtableSvcLocation       = getEnvOrDie("AIRTABLE_SERVICE_LOCATION")
 	googleCalendarSvcLocation = getEnvOrDie("GOOGLE_CALENDAR_SERVICE_LOCATION")
+
+	includeAllDayEvents = os.Getenv("INCLUDE_ALL_DAY_EVENTS") == "true"
 )
 
 var caledarOlegKomodor = getEnvOrDie("WORK_EMAIL")
@@ -421,7 +423,7 @@ func createTrelloCards(calendarEventsTask string, list string, labels []string) 
 					return nil
 				}
 				taskName.WriteString(" [" + start.Format("15:04") + "]")
-			} else if c.Start.Date != nil {
+			} else if c.Start.Date != nil && includeAllDayEvents {
 				start, err := time.Parse("2006-01-02", *c.Start.Date)
 				if err != nil {
 					fmt.Println(err)
