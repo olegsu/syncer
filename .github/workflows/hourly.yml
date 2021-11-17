@@ -1,4 +1,4 @@
-name: Daily
+name: Hourly
 
 on:
   schedule:
