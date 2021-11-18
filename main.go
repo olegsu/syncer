@@ -423,13 +423,15 @@ func createTrelloCards(calendarEventsTask string, list string, labels []string) 
 					return nil
 				}
 				taskName.WriteString(" [" + start.Format("15:04") + "]")
-			} else if c.Start.Date != nil && includeAllDayEvents {
+			} else if includeAllDayEvents {
 				start, err := time.Parse("2006-01-02", *c.Start.Date)
 				if err != nil {
 					fmt.Println(err)
 					return nil
 				}
 				taskName.WriteString(" [" + start.Format("2006-01-02") + "]")
+			} else {
+				continue
 			}
 
 			args = append(args, task.Argument{
